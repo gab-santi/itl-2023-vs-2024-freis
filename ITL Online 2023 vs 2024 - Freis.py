@@ -403,3 +403,7 @@ sns.lineplot(data=sp_progression_2024_df, x="date_played", y="running_sp")
 # COMMAND ----------
 
 sp_progression_2023_df
+
+# COMMAND ----------
+
+sp_progression_2024_df
