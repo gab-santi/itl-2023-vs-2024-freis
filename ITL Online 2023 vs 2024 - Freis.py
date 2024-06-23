@@ -42,6 +42,8 @@
 import json
 import pandas as pd
 import seaborn as sns
+import matplotlib.pyplot as plt
+from pyspark.sql import functions as F
 
 # COMMAND ----------
 
@@ -309,7 +311,7 @@ session_count_2024 = get_session_count(scores_2024)
 
 # COMMAND ----------
 
-print("Number of sessions played in #ITLOnline2023: ", session_count_2023) # Should be 34
+print("Number of sessions played in #ITLOnline2023: ", session_count_2023) # Should be 24
 print("Number of sessions played in #ITLOnline2024: ", session_count_2024) # Should be 30
 
 # COMMAND ----------
@@ -355,11 +357,7 @@ def get_best_scores_for_date(scores_df, date):
 def get_running_sp_for_date(scores_df, date):
     best_scores_per_chart_df = get_best_scores_for_date(scores_df, date)
 
-    window_spec = Window.orderBy(best_scores_per_chart_df.points.desc())
-
-    ranked_df = best_scores_per_chart_df.withColumn("rank", rank().over(window_spec))
-
-    running_sp_df = ranked_df.filter(ranked_df.rank <= 75)
+    running_sp_df = best_scores_per_chart_df.sort("points", ascending=False).limit(75)
 
     running_sp = running_sp_df.selectExpr("sum(points) as sum_points").collect()[0]["sum_points"]
 
@@ -393,17 +391,123 @@ sp_progression_2024_df = create_sp_progression_df(scores_2024)
 # COMMAND ----------
 
 # Plot
-# DEBUG fix SP drop issue
-sns.lineplot(data=sp_progression_2023_df, x="date_played", y="running_sp")
+sns.set_style("dark")
+fig, ax1 = plt.subplots()
+fig.set_size_inches((8,6))
+
+plt.xticks(rotation=45)
+
+y_ticks = [150000, 225000, 300000, 375000, 450000, 525000]
+y_labels = ["150k", "225k", "300k", "375k", "450k", "525k"]
+
+plt.yticks(ticks=y_ticks, labels=y_labels)
+
+sns.lineplot(data=sp_progression_2023_df, x="date_played", y="running_sp", color="#50afd0", label="#ITLOnline2023")
+ax1.fill_between(sp_progression_2023_df["date_played"], sp_progression_2023_df["running_sp"], color="#50afd0", alpha=0.2)
+ax1.grid(axis="y", linewidth=2.5)
+
+ax2 = ax1.twiny()
+sns.lineplot(data=sp_progression_2024_df, x="date_played", y="running_sp", color="#ec1497", label="#ITLOnline2024")
+ax2.fill_between(sp_progression_2024_df["date_played"], sp_progression_2024_df["running_sp"], color="#ec1497", alpha=0.1)
+
+plt.title("ITL Online 2023 vs 2024 - Freis")
+ax1.set_xlabel("Date (2023)")
+ax2.set_xlabel("Date (2024)")
+ax1.set_ylabel("SP")
+
+plt.xticks(rotation=45)
+plt.legend()
+plt.show()
 
 # COMMAND ----------
 
-sns.lineplot(data=sp_progression_2024_df, x="date_played", y="running_sp")
+# DEBUG
+get_running_sp_for_date(scores_2024, "2024-04-18")
 
 # COMMAND ----------
 
-sp_progression_2023_df
+# check if there are duplicate chard_ids
+test_df = get_best_scores_for_date(scores_2024, "2024-04-18").join(charts_2024.select("chart_id", "title"), "chart_id", how="left").sort("points", ascending=False).limit(75)
+
+test_df.show(75)
 
 # COMMAND ----------
 
-sp_progression_2024_df
+from pyspark.sql.functions import col, count, sum
+
+test_df.groupBy("chart_id").agg(count("chart_id").alias("count")).filter(col("count") > 1).show()
+
+# COMMAND ----------
+
+test_df.selectExpr("sum(points)").show()
+
+# COMMAND ----------
+
+# More metrics
+# average scores per lvl
+def get_average_scores_per_lvl(best_scores_df, charts_df):
+    best_scores_with_lvl_df = best_scores_df.select("chart_id", "ex").join(charts_df.select("chart_id", "level"), "chart_id", "left")
+    average_scores_df = best_scores_with_lvl_df.groupBy("level").agg({'ex': 'avg'}).withColumnRenamed("avg(ex)", "avg_ex").orderBy("level")
+
+    return average_scores_df
+
+# COMMAND ----------
+
+avg_scores_per_lvl_2023 = get_average_scores_per_lvl(best_scores_2023, charts_2023)
+avg_scores_per_lvl_2024 = get_average_scores_per_lvl(best_scores_2024, charts_2024)
+
+# COMMAND ----------
+
+avg_scores_per_lvl_2023.show()
+
+# COMMAND ----------
+
+avg_scores_per_lvl_2024.show()
+
+# COMMAND ----------
+
+# min scores per lvl
+def get_min_scores_per_lvl(best_scores_df, charts_df):
+    best_scores_with_lvl_df = best_scores_df.select("chart_id", "ex").join(charts_df.select("chart_id", "level"), "chart_id", "left")
+    min_scores_df = best_scores_with_lvl_df.groupBy("level").agg({'ex': 'min'}).withColumnRenamed("min(ex)", "min_ex").orderBy("level")
+
+    return min_scores_df
+
+# COMMAND ----------
+
+min_scores_per_lvl_2023 = get_min_scores_per_lvl(best_scores_2023, charts_2023)
+min_scores_per_lvl_2024 = get_min_scores_per_lvl(best_scores_2024, charts_2024)
+
+# COMMAND ----------
+
+min_scores_per_lvl_2023.show()
+
+# COMMAND ----------
+
+min_scores_per_lvl_2024.show()
+
+# COMMAND ----------
+
+# max scores per lvl
+def get_max_scores_per_lvl(best_scores_df, charts_df):
+    best_scores_with_lvl_df = best_scores_df.select("chart_id", "ex").join(charts_df.select("chart_id", "level"), "chart_id", "left")
+    max_scores_df = best_scores_with_lvl_df.groupBy("level").agg({'ex': 'max'}).withColumnRenamed("max(ex)", "max_ex").orderBy("level")
+
+    return max_scores_df
+
+# COMMAND ----------
+
+max_scores_per_lvl_2023 = get_max_scores_per_lvl(best_scores_2023, charts_2023)
+max_scores_per_lvl_2024 = get_max_scores_per_lvl(best_scores_2024, charts_2024)
+
+# COMMAND ----------
+
+max_scores_per_lvl_2023.show()
+
+# COMMAND ----------
+
+max_scores_per_lvl_2024.show()
+
+# COMMAND ----------
+
+# TODO create single dashboard for all
