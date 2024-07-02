@@ -296,6 +296,10 @@ print("Difference: ", sp_2024-sp_2023)
 
 # COMMAND ----------
 
+478255 * 0.08340529633772778
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F
 
 # 5. Number of sessions played (session = 1 day)
@@ -397,8 +401,8 @@ fig.set_size_inches((8,6))
 
 plt.xticks(rotation=45)
 
-y_ticks = [150000, 225000, 300000, 375000, 450000, 525000]
-y_labels = ["150k", "225k", "300k", "375k", "450k", "525k"]
+y_ticks = [75000, 150000, 225000, 300000, 375000, 450000, 525000]
+y_labels = ["75k", "150k", "225k", "300k", "375k", "450k", "525k"]
 
 plt.yticks(ticks=y_ticks, labels=y_labels)
 
@@ -510,4 +514,138 @@ max_scores_per_lvl_2024.show()
 
 # COMMAND ----------
 
-# TODO create single dashboard for all
+# join all and get differences
+avg_scores_per_lvl_2023.withColumnRenamed("avg_ex", "avg_ex_2023").join(avg_scores_per_lvl_2024.withColumnRenamed("avg_ex", "avg_ex_2024"), "level", "left").join(min_scores_per_lvl_2023.withColumnRenamed("min_ex", "min_ex_2023"), "level", "left").join(min_scores_per_lvl_2024.withColumnRenamed("min_ex", "min_ex_2024"), "level", "left").join(max_scores_per_lvl_2023.withColumnRenamed("max_ex", "max_ex_2023"), "level", "left").join(max_scores_per_lvl_2024.withColumnRenamed("max_ex", "max_ex_2024"), "level", "left").orderBy("level").selectExpr(
+    "level",
+    "min_ex_2024-min_ex_2023 AS min_ex_diff",
+    "avg_ex_2024-avg_ex_2023 AS avg_ex_diff",
+    "max_ex_2024-max_ex_2023 AS max_ex_diff"
+).toPandas()
+
+# COMMAND ----------
+
+# Create analytical base table with the ff columns:
+# chart_id
+# title
+# subtitle
+# difficulty
+# level
+# is_no_cmod
+# num_submissions
+# min_ex
+# avg_ex
+# max_ex
+# min_points
+# avg_points
+# max_points
+# first_submit_timestamp
+# last_submit_timestamp
+# tournament_year
+from pyspark.sql.functions import lit, min, avg, max, count, round
+
+charts_unioned_df = charts_2023.withColumn('tournament_year', lit("2023")).unionAll(charts_2024.withColumn('tournament_year', lit("2024"))).selectExpr(
+    "chart_id",
+    "title",
+    "subtitle",
+    "difficulty",
+    "level",
+    "is_no_cmod",
+    "points AS point_value",
+    "tournament_year"
+)
+
+abt = scores_2023.withColumn('tournament_year', lit("2023")).unionAll(scores_2024.withColumn('tournament_year', lit("2024"))).groupBy("chart_id", "tournament_year").agg(
+    count("*").alias("num_submissions"),
+    min("ex").alias("min_ex"),
+    round(avg("ex"), 2).alias("avg_ex"),
+    max("ex").alias("max_ex"),
+    min("points").alias("min_points"),
+    round(avg("points"), 2).alias("avg_points"),
+    max("points").alias("max_points"),
+    min("date_added").alias("first_submit_timestamp"),
+    max("date_added").alias("last_submit_timestamp"),
+).join(charts_unioned_df, ["chart_id", "tournament_year"], "left").selectExpr(
+    "concat(tournament_year, lpad(chart_id, 3, '0')) AS id",
+    "title",
+    "subtitle",
+    "difficulty",
+    "level",
+    "is_no_cmod",
+    "point_value",
+    "num_submissions",
+    "min_ex",
+    "avg_ex",
+    "max_ex",
+    "min_points",
+    "avg_points",
+    "max_points",
+    "first_submit_timestamp",
+    "last_submit_timestamp",
+    "tournament_year"
+)
+
+# COMMAND ----------
+
+# Check count - good
+print(best_scores_2023.count())
+print(best_scores_2024.count())
+print(abt.count())
+print(best_scores_2023.count() + best_scores_2024.count() == abt.count())
+
+# COMMAND ----------
+
+abt.limit(100).toPandas()
+
+# COMMAND ----------
+
+# Checking some stuff
+# 14s distribution
+abt.filter("tournament_year = 2023").filter("level = 14").orderBy("max_ex").select(
+    "id",
+    "title",
+    "point_value",
+    "max_ex",
+    "max_points"
+).toPandas()
+
+# COMMAND ----------
+
+# 13s distribution
+abt.filter("tournament_year = 2023").filter("level = 13").orderBy("max_ex").select(
+    "id",
+    "title",
+    "point_value",
+    "max_ex",
+    "max_points"
+).toPandas()
+
+# COMMAND ----------
+
+abt.filter("tournament_year = 2023").filter("level = 15").orderBy("max_ex").select(
+    "id",
+    "title",
+    "point_value",
+    "max_ex",
+    "max_points"
+).toPandas()
+
+# COMMAND ----------
+
+abt.filter("tournament_year = 2024").filter("level = 15").orderBy("max_ex").select(
+    "id",
+    "title",
+    "point_value",
+    "max_ex",
+    "max_points"
+).toPandas()
+
+# COMMAND ----------
+
+# Store the following into storage:
+# scores_2023
+# scores_2024
+# abt
+
+# COMMAND ----------
+
+# Create Dashboard using table
